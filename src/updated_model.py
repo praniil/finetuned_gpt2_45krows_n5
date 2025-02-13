@@ -4,12 +4,6 @@ from transformers import EarlyStoppingCallback
 from datasets import concatenate_datasets
 import os
 import torch
-import numpy as np
-from math import exp
-from nltk.translate.bleu_score import sentence_bleu
-import matplotlib.pyplot as plt
-import json
-import torch.nn.functional as F
 
 torch.cuda.empty_cache()
 
@@ -67,45 +61,28 @@ final_dataset = {
 model = GPT2LMHeadModel.from_pretrained('gpt2')
 model.to(device)
 
-metrics_history = {"loss": [], "perplexity": []}  
-
-def compute_metrics(eval_pred):
-    logits, labels = eval_pred
-
-    probs = F.log_softmax(torch.tensor(logits), dim=-1)
-
-    # Compute cross-entropy loss instead of MSE
-    loss = F.nll_loss(probs.view(-1, probs.shape[-1]), torch.tensor(labels).view(-1)).item()
-
-    # Compute Perplexity
-    perplexity = np.exp(loss) if loss < 300 else float('inf')
-
-    # Append to metrics history
-    metrics_history["loss"].append(loss)
-    metrics_history["perplexity"].append(perplexity)
-
-    return {"loss": loss, "perplexity": perplexity}
-
 
 #training argument define
 training_args = TrainingArguments(
-    output_dir="/home/nil/python_projects/gpt2_finetuned_45k_10epochs/new_results",
-    evaluation_strategy="epoch", 
-    save_strategy="epoch",  # Save checkpoint per epoch
+    output_dir="/home/nil/python_projects/gpt2_finetuned_45k_10epochs/results",
+    eval_strategy="steps",  # Evaluate every few steps
+    save_steps=5000,       
+    eval_steps=5000,         
     num_train_epochs=20,
-    per_device_train_batch_size=4,  # Reduce batch size if needed
+    per_device_train_batch_size=4,
     per_device_eval_batch_size=4,
-    warmup_steps=1500,  
+    warmup_steps=1500,
     weight_decay=0.01,
-    logging_dir="/home/nil/python_projects/gpt2_finetuned_45k_10epochs/new_logs",
-    logging_strategy="epoch", 
-    learning_rate=3e-5,  # Reduce LR for stability
-    report_to=["tensorboard"],
+    logging_dir="/home/nil/python_projects/gpt2_finetuned_45k_10epochs/logs",
+    logging_strategy="steps",  # Log every 'logging_steps'
+    logging_steps=50,  # Log every 50 steps
+    learning_rate=3e-5,
+    report_to=["tensorboard"],   
     fp16=True,  # Use mixed precision training
-    save_total_limit=4, 
-    load_best_model_at_end=True,
-    metric_for_best_model="loss",
-    greater_is_better=False,
+    save_total_limit=2,  # Keep only last 2 model checkpoints
+    load_best_model_at_end=True, 
+    metric_for_best_model="loss",  # Use loss to decide best model
+    greater_is_better=False,  # Lower loss is better
     log_level="info"
 )
 
@@ -122,18 +99,17 @@ trainer = Trainer(
     train_dataset=final_dataset['train'],
     eval_dataset=final_dataset['validation'],
     tokenizer=tokenizer,
-    compute_metrics=compute_metrics,
     callbacks = [early_stopping]
 )
 
 # Training
-# checkpoint_path = '/home/nil/python_projects/gpt2_finetuned_45k_10epochs/results/checkpoint-20000'
-# if os.path.exists(checkpoint_path):
-#     trainer.train(resume_from_checkpoint=checkpoint_path)
-# else:
-#     trainer.train()
+checkpoint_path = '/home/nil/python_projects/gpt2_finetuned_45k_10epochs/new_results/checkpoint-30000'
+if os.path.exists(checkpoint_path):
+    trainer.train(resume_from_checkpoint=checkpoint_path)
+else:
+    trainer.train()
 
-trainer.train()
+# trainer.train()
 
 # Save model
 model_output_dir = '/home/nil/python_projects/gpt2_finetuned_45k_10epochs/new_results/new_model'
@@ -141,6 +117,3 @@ os.makedirs(model_output_dir, exist_ok=True)
 model.save_pretrained(model_output_dir)
 tokenizer.save_pretrained(model_output_dir)
 
-# Save metrics history for later plotting
-with open('/home/nil/python_projects/gpt2_finetuned_45k_10epochs/new_results/metrics_history.json', 'w') as f:
-    json.dump(metrics_history, f)
