@@ -1,3 +1,4 @@
-/logs
-/results
-/venv
+results
+venv
+new_results
+src/__pycache__
